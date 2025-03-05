@@ -8,7 +8,7 @@ export interface SubtitleInfo {
 };
 
 export interface SubtitleFetchOptions {
-  language?: LanguageID | LanguageID[];
+  language?: LanguageID;
 }
 
 export type LanguageID =
@@ -70,50 +70,57 @@ export type LanguageID =
   'zh-tw' // Chinese Traditional
 ;
 
-export class Downloadable {
-  public download(): void {}
-}
-
 interface FetchResponse {
   body: string,
   bodyUsed: true,
-
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/headers) */
-  readonly headers: Headers;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/ok) */
-  readonly ok: boolean;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/redirected) */
-  readonly redirected: boolean;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/status) */
-  readonly status: number;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/statusText) */
-  readonly statusText: string;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/type) */
-  readonly type: ResponseType;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/url) */
-  readonly url: string;
-  /** [MDN Reference](https://developer.mozilla.org/docs/Web/API/Response/clone) */
-  clone(): Response;
+  headers: Headers;
+  ok: boolean;
+  redirected: boolean;
+  status: number;
+  statusText: string;
+  url: string;
 }
 
 export async function fetchResponse(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse> {
   const response = await fetch(input, init);
-  (response as any).body = await response.text();
-  delete (response as any).bodyUsed;
-  delete (response as any).arrayBuffer;
-  delete (response as any).blob;
-  delete (response as any).bytes;
-  delete (response as any).formData;
-  delete (response as any).json;
-  delete (response as any).text;
-
-  (response as any).bodyUsed = true;
-  return response as unknown as FetchResponse;
+  return {
+    headers: response.headers,
+    ok: response.ok,
+    redirected: response.redirected,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    body: await response.text(),
+    bodyUsed: true,
+  };
 }
 
 export async function fetchHtml(input: RequestInfo | URL, init?: RequestInit, errorOnBadResponse: boolean = true): Promise<HTMLElement> {
   const response = await fetch(input, init);
   if (!response.ok && errorOnBadResponse) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
-  return parse(await response.text());
+  const dom = parse(await response.text());
+  return dom;
 }
+
+export class DownloadedFile {
+  constructor(public filename: string, public data: string) {}
+
+  static async download(url: string): Promise<DownloadedFile> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    let filename: string | undefined;
+    const contentDisposition = response.headers.get('content-disposition');
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="([^"]+?)"/);
+      if (filenameMatch && filenameMatch[1]) {
+        filename = filenameMatch[1];
+      }
+    }
+
+    return new DownloadedFile(filename!, await response.text());
+  }
+}
+
+
 
