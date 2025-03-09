@@ -10,7 +10,7 @@ class OpenSubtitlesMovieLink {
     const {data} = JSON.parse(body) as {data: string[][]};
 
     return data.map(s => new OpenSubtitlesSubtitleLink(this, parse(s.at(-1)!).querySelector('a[data-remote="true"]')?.getAttribute('href')!, {
-      fileName: parse(s[2]).textContent?.split('\n', 2)?.[0],
+      fileName: parse(s[2]).textContent?.split('\n', 1)?.[0],
       language: parse(s[1]).firstElementChild?.getAttribute('title'),
     })).filter(subtitle => subtitle._link != undefined);
   }
