@@ -1,75 +1,57 @@
 'use strict';
-import { parse } from 'node-html-parser';
-import { DownloadedFile, type SubtitleInfo } from '../utils/download';
+import { fetchHtml, MovieList, SubtitleList, type SubtitleInfo, type SubtitleOptions } from '../utils/download';
 
 const SITE = 'https://www.moviesubtitles.org';
 
-class MoviesSubtitlesMovieLink {
-  constructor(public title: string, public link: string) {}
-  async toSubtitleLinks(): Promise<MoviesSubtitlesSubtitleLink[]> {
-    const response = await fetch(SITE + this.link);
-    if (!response.ok) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
+class MoviesSubtitlesMovieLink extends MovieList {
+  constructor(title: string, link: string, options: SubtitleOptions) {
+    super(title, link, options);
+  }
 
-    const html = await response.text();
-    const root = parse(html);
+  async toSubtitleLinks(): Promise<MoviesSubtitlesSubtitleLink[]> {
+    const root = await fetchHtml(SITE + this.link);
     const subtitleElements = root.querySelectorAll('div[style="margin-bottom:0.5em; padding:3px;"]');
-    return Array.from(subtitleElements)
-      .map(e => new MoviesSubtitlesSubtitleLink(this, e.querySelector('a')?.getAttribute('href')!, {
-        fileName: e.textContent.split('\n', 1)[0],
-        language: e.firstElementChild?.getAttribute('titls')?.match(/Download\s+?([^\s]+?)/i)?.[1],
+    let retval = Array.from(subtitleElements)
+      .map(e => new MoviesSubtitlesSubtitleLink(this, e.lastElementChild?.getAttribute('href')!, {
+        filename: e.textContent.split('\n', 1)[0],
+        language: e.firstElementChild?.getAttribute('src')?.split('/')?.at(-1)?.split('.')[0],
       }))
       .filter(subtitle => subtitle._link != undefined)
       .map(lnk => (lnk._link = lnk._link.replace('subtitle', 'download'), lnk))
     ;
+
+    if (this.options.language) {
+      retval = retval.filter(e => e.info.language == this.options.language);
+    }
+
+    return retval;
   }
 }
 
-class MoviesSubtitlesSubtitleLink {
-  constructor(
-    public page: MoviesSubtitlesMovieLink,
-    public _link: string,
-    public info: SubtitleInfo
-  ) {}
+class MoviesSubtitlesSubtitleLink extends SubtitleList {
+  isZip(): boolean { return true; }
 
-  async download(): Promise<DownloadedFile> {
-    return await DownloadedFile.download(SITE + this._link, this.info.fileName? this.info.fileName+'.zip': undefined);
+  constructor(page: MoviesSubtitlesMovieLink, _link: string, info: SubtitleInfo) {
+    super(page, _link, info);
+  }
+
+  async downloadLink(): Promise<string> {
+    return SITE + this._link;
   }
 }
 
-export default async function moviesubtitlesFetch(query: string): Promise<MoviesSubtitlesMovieLink[]> {
+export default async function fetchMovieSubtitlesOrg(query: string, options: SubtitleOptions = {}): Promise<MoviesSubtitlesMovieLink[]> {
   const formData = new URLSearchParams();
   formData.append('q', query);
 
-  const response = await fetch(SITE + '/search.php', {
+  const root = await fetchHtml(SITE + '/search.php', {
     method: 'POST',
     body: formData,
-  });
-
-  // Always gives 500
-  //if (!response.ok) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
-
-  const html = await response.text();
-
-  const root = parse(html);
+  }, /* Always gives 500 for some reason */ false);
   const movieElements = root.querySelectorAll('div[style="width:500px"] > a');
   return Array.from(movieElements)
-    .map(e => new MoviesSubtitlesMovieLink(e.textContent, e.getAttribute('href')!))
+    .map(e => new MoviesSubtitlesMovieLink(e.textContent, e.getAttribute('href')!, options))
     .filter(movie => movie.title != undefined)
   ;
 }
-
-async function test() {
-  const list = await moviesubtitlesFetch('Independence Day');
-  console.log(list);
-
-  const subtitles = await list[0].toSubtitleLinks();
-  const sub = subtitles[0];
-  console.log(sub);
-
-  console.log(sub.info);
-  const file = await sub.download();
-  console.log(file);
-}
-
-test();
 

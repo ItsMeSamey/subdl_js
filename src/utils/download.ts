@@ -1,15 +1,101 @@
 'use strict';
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-import parse, { HTMLElement } from "node-html-parser";
+
+import { parse, type HTMLElement } from "node-html-parser";
 import JSZip from 'jszip';
+import { search, sortKind, type FullOptions } from 'fast-fuzzy';
 
 export interface SubtitleInfo {
-  fileName?: string;
+  filename?: string;
   language?: string;
 };
 
-export interface SubtitleFetchOptions {
+export interface SubtitleOptions {
   language?: LanguageID;
+
+  // Following options are overridden in searchOptions
+  // keySelector: () => string,
+  // returnMatchData: false,
+  // sortBy: sortKind.bestMatch,
+  searchOptions?: FullOptions<SubtitleList>;
+}
+
+export class MovieList {
+  constructor(public title: string, public link: string, public options: SubtitleOptions) {}
+
+  async toSubtitleLinks(): Promise<SubtitleList[]> { return []; }
+}
+ 
+export class SubtitleList {
+  isZip(): boolean { return false; }
+
+  // Populated after downloadLink is called
+  link?: string;
+  constructor(public page: MovieList, public _link: string, public info: SubtitleInfo) {}
+
+  // You may set link to `undefined` to force refetching
+  // Note: in some cases _link and link may be the same so refetching is never done
+  async downloadLink(): Promise<string | undefined> { return; }
+
+  // Unpacks the zip file and returns the subtitle file inside
+  private async unpackzip(data: ArrayBuffer): Promise<string[]> {
+    const zip = await JSZip.loadAsync(data);
+
+    const allFiles = Object.values(zip.files).filter(v => !v.dir);
+    let strFiles = allFiles.filter(v => v.name.endsWith('.srt'));
+    if (strFiles.length === 0) strFiles = allFiles;
+    if (strFiles.length === 1) return [await strFiles[0].async('text')];
+
+    const retval = search(this.info.filename!, strFiles, {
+      ignoreCase: true,
+      ignoreSymbols: true,
+      normalizeWhitespace: true,
+      sortBy: sortKind.bestMatch,
+      keySelector(item: JSZip.JSZipObject) {return item.name;},
+      threshold: 0,
+    }).map(v => v.async('text'));
+    return Promise.all(retval);
+  }
+
+  // Downloads the subtitle file and unpacks to zip if necessary
+  // Internally invokes downloadLink, so subsequent calls should not fetch again
+  async download(): Promise<DownloadedFile> {
+    const url = await this.downloadLink();
+    if (!url) throw new Error('downloadLink returned undefined');
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const contentDisposition = response.headers.get('content-disposition');
+    if (contentDisposition && !this.info.filename) {
+      const filenameMatch = contentDisposition.match(/filename="([^"]+?)"/);
+      if (filenameMatch && filenameMatch[1]) {
+        this.info.filename = filenameMatch[1];
+      }
+    }
+
+    let subtitles: string[];
+    if (this.isZip()) {
+      const buffer = await response.arrayBuffer()
+      try {
+        return new DownloadedFile(await this.unpackzip(buffer), this.info.filename);
+      } catch (e) {
+        console.error('error when unpacking zip', e);
+        try { // try to treat it as plain text (I've seen a plaintext file named .zip on some sites)
+          const string = new TextDecoder('utf-8', { fatal: true }).decode(buffer); 
+          subtitles = [string];
+        } catch (e2) {
+          console.error('error when decoding as plaintext', e2);
+          throw new Error(`Could not unpack ZIP file and could not treat it as plaintext\nZip: ${e}\nPlaintext: ${e2}`);
+        }
+      }
+    } else {
+      subtitles = [await response.text()];
+    }
+
+    return new DownloadedFile(subtitles, this.info.filename!);
+  }
 }
 
 export type LanguageID =
@@ -131,7 +217,6 @@ export const LanguageNameMap: Record<LanguageID, string> = {
 }
 
 interface FetchResponse {
-  body: string,
   bodyUsed: true,
   headers: Headers;
   ok: boolean;
@@ -141,7 +226,7 @@ interface FetchResponse {
   url: string;
 }
 
-export async function fetchResponse(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse> {
+export async function fetchResponse(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse & {body: string}> {
   const response = await fetch(input, init);
   return {
     headers: response.headers,
@@ -155,6 +240,21 @@ export async function fetchResponse(input: RequestInfo | URL, init?: RequestInit
   };
 }
 
+export async function fetchJson(input: RequestInfo | URL, init?: RequestInit): Promise<FetchResponse & {json: any}> {
+  const response = await fetch(input, init);
+  if (!response.ok) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
+  return {
+    headers: response.headers,
+    ok: response.ok,
+    redirected: response.redirected,
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    json: await response.json(),
+    bodyUsed: true,
+  };
+}
+
 export async function fetchHtml(input: RequestInfo | URL, init?: RequestInit, errorOnBadResponse: boolean = true): Promise<HTMLElement> {
   const response = await fetch(input, init);
   if (!response.ok && errorOnBadResponse) throw new Error(`HTTP Error! status: ${response.status}\nBody: ${await response.text()}`);
@@ -163,39 +263,6 @@ export async function fetchHtml(input: RequestInfo | URL, init?: RequestInit, er
 }
 
 export class DownloadedFile {
-  constructor(public data: string, public filename?: string) {}
-
-  static async download(url: string, filename?: string): Promise<DownloadedFile> {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-    const contentDisposition = response.headers.get('content-disposition');
-    if (contentDisposition && !filename) {
-      const filenameMatch = contentDisposition.match(/filename="([^"]+?)"/);
-      if (filenameMatch && filenameMatch[1]) {
-        filename = filenameMatch[1];
-      }
-    }
-
-    let data: string;
-    if (filename?.endsWith('.zip')) {
-      return new DownloadedFile(await this.unpackzip(await response.arrayBuffer()), filename);
-    } else {
-      data = await response.text();
-    }
-
-    return new DownloadedFile(data, filename!);
-  }
-
-  private static async unpackzip(data: ArrayBuffer): Promise<string> {
-    const zip = await JSZip.loadAsync(data);
-
-    for (const relativePath in zip.files) {
-      if (zip.files[relativePath].dir) continue; // Skip directories
-      if (relativePath.endsWith('.srt')) return await zip.files[relativePath].async('text');
-    }
-
-    throw new Error(`Could not find subtitle file in ZIP\n${zip.files}`);
-  }
+  constructor(public subtitles: string[], public filename?: string) {}
 }
 
