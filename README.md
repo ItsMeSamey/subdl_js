@@ -2,6 +2,9 @@
 
 SubDL is a TypeScript library designed to fetch and download subtitles for movies from various subtitle websites. It supports multiple subtitle sources and provides a unified interface to search and download subtitles.
 
+> [!NOTE]
+> There is also a go version of this library available at [subdl_go](https://github.com/ItsMeSamey/subdl_go)
+
 ## Features
 
 - Fetch subtitles from multiple sources:
