@@ -1,8 +1,23 @@
 {
-  "name": "sub_dl",
+  "name": "subdl",
+  "version": "1.0.0",
+  "description": "A TypeScript library designed to fetch and download subtitles for movies from various subtitle websites.",
+  "main": "index.ts",
+  "types": "index.ts",
   "module": "index.ts",
   "type": "module",
-  "private": true,
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ItsMeSamey/subdl_js.git"
+  },
+  "keywords": [
+    "subtitles",
+    "movies",
+    "typescript",
+    "srt"
+  ],
+  "license": "MIT",
   "devDependencies": {
     "@types/bun": "latest"
   },
