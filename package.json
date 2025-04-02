@@ -9,7 +9,7 @@
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "https://github.com/ItsMeSamey/subdl_js.git"
+    "url": "git+https://github.com/ItsMeSamey/subdl_js.git"
   },
   "keywords": [
     "subtitles",

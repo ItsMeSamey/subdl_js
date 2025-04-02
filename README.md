@@ -87,8 +87,7 @@ async function downloadSubtitles() {
 You can use fetch functions directly to have more control over how the subtitles are downloaded.
 
 each `Fetch` function returns a `MovieList` array, which contains a list of movies that match the search query.
-You can then use the `toSubtitleLinks` method on any movie in list to get it's subtitle list.
-`MovieList.toSubtitleLinks()` returns a `SubtitleList` array, which has `download` method to download the subtitle.
+You can then use the `<MovieList instance>.toSubtitleLinks()` to get a `SubtitleList` array, which has `download` method to download that subtitle.
 
 ## Contributing
 
