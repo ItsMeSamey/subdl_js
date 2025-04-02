@@ -39,13 +39,13 @@ export class SubtitleList {
   async downloadLink(): Promise<string | undefined> { return; }
 
   // Unpacks the zip file and returns the subtitle file inside
-  private async unpackzip(data: ArrayBuffer): Promise<string[]> {
+  private async unpackzip(data: ArrayBuffer): Promise<DownloadedFileSubtitles[]> {
     const zip = await JSZip.loadAsync(data);
 
     const allFiles = Object.values(zip.files).filter(v => !v.dir);
     let strFiles = allFiles.filter(v => v.name.endsWith('.srt'));
     if (strFiles.length === 0) strFiles = allFiles;
-    if (strFiles.length === 1) return [await strFiles[0].async('text')];
+    if (strFiles.length === 1) return [new DownloadedFileSubtitles(await strFiles[0].async('text'), strFiles[0].name)];
 
     const retval = search(this.info.filename!, strFiles, {
       ignoreCase: true,
@@ -54,7 +54,7 @@ export class SubtitleList {
       sortBy: sortKind.bestMatch,
       keySelector(item: JSZip.JSZipObject) {return item.name;},
       threshold: 0,
-    }).map(v => v.async('text'));
+    }).map(async(v) => new DownloadedFileSubtitles(await v.async('text'), v.name));
     return Promise.all(retval);
   }
 
@@ -75,26 +75,26 @@ export class SubtitleList {
       }
     }
 
-    let subtitles: string[];
+    let subtitles: string;
     if (this.isZip()) {
       const buffer = await response.arrayBuffer()
       try {
-        return new DownloadedFile(await this.unpackzip(buffer), this.info.filename);
+        return new DownloadedFile(await this.unpackzip(buffer), this);
       } catch (e) {
         console.error('error when unpacking zip', e);
         try { // try to treat it as plain text (I've seen a plaintext file named .zip on some sites)
           const string = new TextDecoder('utf-8', { fatal: true }).decode(buffer); 
-          subtitles = [string];
+          subtitles = string;
         } catch (e2) {
           console.error('error when decoding as plaintext', e2);
           throw new Error(`Could not unpack ZIP file and could not treat it as plaintext\nZip: ${e}\nPlaintext: ${e2}`);
         }
       }
     } else {
-      subtitles = [await response.text()];
+      subtitles = await response.text();
     }
 
-    return new DownloadedFile(subtitles, this.info.filename!);
+    return new DownloadedFile([new DownloadedFileSubtitles(subtitles, this.info.filename)], this);
   }
 }
 
@@ -262,7 +262,11 @@ export async function fetchHtml(input: RequestInfo | URL, init?: RequestInit, er
   return dom;
 }
 
+export class DownloadedFileSubtitles {
+  constructor(public subtitles: string, public filename?: string) {}
+}
+
 export class DownloadedFile {
-  constructor(public subtitles: string[], public filename?: string) {}
+  constructor(public subtitles: DownloadedFileSubtitles[], public parent: SubtitleList) {}
 }
 
